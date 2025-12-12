@@ -10,17 +10,17 @@
 * **AI Engine:** Google Gemini 1.5 Flash (Multimodal)
 * **Maps:** Google Maps Javascript API
 
-## 👥 Team Marshal
+## 👥 Team Marshal (Core Team)
 | Member | Role | Responsibilities |
 | :--- | :--- | :--- |
-| **Chirag Bhoi** | Tech Lead | Backend Architecture, AI Integration, Database |
-| **Mohit** | Frontend Lead | UI/UX Design, Map Visualizations, Client Logic |
-| **Riya** | Product Lead | QA Testing, Documentation, Branding & Pitch |
+| **Chirag Bhoi** | Tech Lead & Architect | Backend Logic, AI Integration, Pitch Deck & Documentation |
+| **Mohit** | Frontend Lead | UI/UX Design, Google Maps Visualization, QA Testing |
 
 ## 🛠️ Getting Started (For Team)
 
 1.  **Clone the repo:**
     ```bash
+    # Replace 'YOUR_USERNAME' with your actual GitHub username below
     git clone [https://github.com/YOUR_USERNAME/ecoguard-lakecity.git](https://github.com/YOUR_USERNAME/ecoguard-lakecity.git)
     cd ecoguard-lakecity
     ```
@@ -33,8 +33,8 @@
 3.  **Set up Environment Variables:**
     Create a `.env.local` file in the root and add:
     ```env
-    NEXT_PUBLIC_FIREBASE_API_KEY=your_key
-    GEMINI_API_KEY=your_key
+    NEXT_PUBLIC_FIREBASE_API_KEY=your_firebase_key
+    GEMINI_API_KEY=your_gemini_key
     ```
 
 4.  **Run the server:**
@@ -42,9 +42,9 @@
     npm run dev
     ```
 
-## 🎯 Key Features (MVP)
-* [ ] **Smart Sense:** AI detection of waste type (Plastic/Organic) & severity.
-* [ ] **Live Maps:** Real-time visualization of waste hotspots.
+## 🎯 Key Features (MVP Goals)
+* [ ] **Smart Sense:** AI detection of waste type (Plastic/Organic) & severity using Gemini Vision.
+* [ ] **Live Maps:** Real-time visualization of waste hotspots on Google Maps.
 * [ ] **Route Optimization:** Efficient pathfinding for collection trucks.
 * [ ] **Impact Tracker:** Dashboard showing CO2 saved.
 
