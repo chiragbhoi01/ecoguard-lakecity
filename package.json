@@ -1,12 +1,18 @@
 {
   "name": "ecoguard-lakecity",
+<<<<<<< HEAD
   "version": "1.0.0",
   "description": "> **Team Marshal** | Google Lakecity Hackathon 2026",
   "main": "index.js",
+=======
+  "version": "0.1.0",
+  "private": true,
+>>>>>>> origin/chirag-code
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+<<<<<<< HEAD
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -28,6 +34,24 @@
     "react-dom": "^19.2.3"
   },
   "devDependencies": {
+=======
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "eslint": "^9.39.1",
+    "eslint-config-next": "^16.0.10",
+    "firebase": "^12.6.0",
+    "lucide-react": "^0.561.0",
+    "next": "^16.0.10",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "react-hot-toast": "^2.6.0",
+    "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+>>>>>>> origin/chirag-code
     "autoprefixer": "^10.4.23",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18"

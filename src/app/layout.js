@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import './globals.css';
 
 export default function RootLayout({ children }) {
@@ -7,3 +8,55 @@ export default function RootLayout({ children }) {
     </html>
   );
 }
+=======
+'use client';
+
+import './globals.css';
+import { useEffect } from 'react';
+import ToasterProvider from '../components/Toaster';
+
+export default function RootLayout({ children }) {
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.innerHTML = `
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+.animate-blob {
+  animation: blob 7s infinite;
+}
+.animation-delay-2000 {
+  animation-delay: 2s;
+}
+.animation-delay-4000 {
+  animation-delay: 4s;
+}
+`;
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
+  return (
+    <html lang="en">
+      <body>
+        <ToasterProvider />
+        {children}
+      </body>
+    </html>
+  );
+}
+
+>>>>>>> origin/chirag-code

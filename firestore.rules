@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow anyone to create new reports
+    match /reports/{reportId} {
+      allow create: if true;
+      // Allow anyone to read reports
+      allow read: if true;
+      // Optionally, allow anyone to read a report if they know the ID (consider if this is desired)
+      // allow read;
+      // Allow authenticated users to update/delete their own reports
+      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // If you have other collections, add rules for them here
+    // match /otherCollection/{documentId} {
+    //   allow read, write: if <condition>;
+    // }
+  }
+}
