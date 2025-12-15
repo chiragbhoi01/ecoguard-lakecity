@@ -1,0 +1,8 @@
+{
+  "firestore": {
+    "database": "ecoguard",
+    "location": "asia-south1",
+    "rules": " ",
+    "indexes": "firestore.indexes.json"
+  }
+}

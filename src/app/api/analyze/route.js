@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { db } from "../../../lib/firebase"; // Using relative path
+import logger from "../../../lib/logger"; // Import the logger
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 export async function POST(req) {
@@ -8,6 +9,7 @@ export async function POST(req) {
     const { image } = await req.json(); // 'image' is expected to be a base64 string
 
     if (!image) {
+      logger.error("Image data (base64 string) is required");
       return NextResponse.json(
         { success: false, error: "Image data (base64 string) is required" },
         { status: 400 }
@@ -36,45 +38,54 @@ export async function POST(req) {
       contents: [{ role: "user", parts }],
     });
 
-    const responseText = result.response.text();
+    logger.info("Gemini API result", { result });
+
+    const response = result.response;
+    const responseText = response.candidates[0].content.parts[0].text;
+    const cleanedResponseText = responseText.replace(/```json\n|\n```/g, '');
     let analysis;
     try {
-      analysis = JSON.parse(responseText);
+      analysis = JSON.parse(cleanedResponseText);
     } catch (parseError) {
-      console.error("Failed to parse AI response as JSON:", parseError);
-      console.error("AI Response Text:", responseText);
+      logger.error("Failed to parse AI response as JSON:", { parseError, responseText });
       return NextResponse.json(
         { success: false, error: "AI response was not valid JSON." },
         { status: 500 }
       );
     }
 
-    // --- ADDING SAVE TO FIRESTORE LOGIC ---
-    let dbSaved = false;
+    // --- UPDATED SAVE TO FIRESTORE LOGIC ---
+    let reportId = null;
     try {
-      const docRef = await addDoc(collection(db, "reports"), {
-        wasteType: analysis.wasteType,
-        severity: analysis.severity,
-        description: analysis.description,
-        imageUrl: "placeholder_for_now", // As requested
+      logger.info("Attempting to add document to Firestore", { analysis });
+      logger.info("Firestore db object", { db });
+      // Create a reference to the 'reports' collection
+      const reportsCollection = collection(db, "reports");
+
+      // Use addDoc to save the new data structure
+      const docRef = await addDoc(reportsCollection, {
+        ...analysis, // Spread the AI result
+        imageUrl: "placeholder_image_url",
+        location: { lat: 24.5854, lng: 73.7125 }, // Udaipur Coordinates
         status: "pending",
-        timestamp: serverTimestamp(),
+        createdAt: serverTimestamp(),
       });
-      console.log("Document written with ID: ", docRef.id);
-      dbSaved = true;
+
+      reportId = docRef.id;
+      logger.info("Document written with ID: ", { reportId });
     } catch (dbError) {
-      console.error("Error adding document to Firestore:", dbError);
-      // We will still return the analysis, but indicate DB save failed.
-      dbSaved = false;
+      logger.error("Error adding document to Firestore:", { dbError });
+      // reportId remains null if saving fails, but we'll still return the analysis
     }
     // --- END OF FIRESTORE LOGIC ---
 
+    // Update the final response to include the new reportId
     return NextResponse.json(
-      { success: true, analysis: analysis, dbSaved: dbSaved },
+      { success: true, reportId: reportId, analysis: analysis },
       { status: 200 }
     );
   } catch (error) {
-    console.error("Error analyzing image:", error);
+    logger.error("Error analyzing image:", error);
     return NextResponse.json(
       { success: false, error: "Failed to analyze image." },
       { status: 500 }
