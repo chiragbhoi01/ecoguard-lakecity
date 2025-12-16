@@ -6,7 +6,7 @@ import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 export async function POST(req) {
   try {
-    const { image } = await req.json(); // 'image' is expected to be a base64 string
+    const { image, location } = await req.json(); // 'image' is expected to be a base64 string
 
     if (!image) {
       logger.error("Image data (base64 string) is required");
@@ -66,7 +66,7 @@ export async function POST(req) {
       const docRef = await addDoc(reportsCollection, {
         ...analysis, // Spread the AI result
         imageUrl: "placeholder_image_url",
-        location: { lat: 24.5854, lng: 73.7125 }, // Udaipur Coordinates
+        location: location || { lat: 24.5854, lng: 73.7125 }, // Udaipur Coordinates
         status: "pending",
         createdAt: serverTimestamp(),
       });

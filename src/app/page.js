@@ -1,26 +1,5 @@
-<<<<<<< HEAD
-import React from 'react';
-import Navbar from '../components/Navbar';
-import Hero from '../components/Hero';
-import UploadBox from '../components/UploadBox';
-import ResultCard from '../components/ResultCard';
-
-const HomePage = () => {
-  return (
-    <div>
-      <h1>Welcome to EcoGuard LakeCity</h1>
-      <Navbar/>
-      <Hero/>
-      <UploadBox/>
-      <ResultCard/>
-    </div>
-  );
-};
-
-export default HomePage;
-=======
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Upload, Loader2, MapPin, CheckCircle, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -28,6 +7,21 @@ export default function Home() {
   const [image, setImage] = useState(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [location, setLocation] = useState(null);
+
+  useEffect(() => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      (error) => {
+        console.warn('Error getting user location:', error);
+      }
+    );
+  }, []);
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
@@ -58,7 +52,7 @@ export default function Home() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ image: image.split(',')[1] }), // Send base64 data without prefix
+        body: JSON.stringify({ image: image.split(',')[1], location }), // Send base64 data and location
       });
 
       if (!response.ok) {
@@ -66,11 +60,16 @@ export default function Home() {
       }
 
       const data = await response.json();
-      setResult(data);
-      toast.success('Analysis complete!');
+      console.log('API Response:', data); // Debug logging
+      if (data.success) {
+        setResult(data.analysis); // Use the .analysis property
+        toast.success('Report Saved! ID: ' + data.reportId);
+      } else {
+        throw new Error(data.error || 'Analysis failed');
+      }
     } catch (error) {
       console.error('Error analyzing image:', error);
-      toast.error('Failed to analyze image. Please try again.');
+      toast.error(`Failed to analyze image: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -78,7 +77,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-4 relative overflow-hidden">
-
       {/* Subtle Gradient Blob */}
       <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob"></div>
       <div className="absolute top-1/2 right-1/4 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-xl opacity-30 animate-blob animation-delay-2000"></div>
@@ -109,6 +107,15 @@ export default function Home() {
             onChange={handleImageChange}
             disabled={loading}
           />
+        </div>
+
+        {/* Location Status */}
+        <div className="text-center text-sm text-slate-400">
+          {location ? (
+            <span className="text-green-400">📍 Location Detected</span>
+          ) : (
+            'Waiting for location...'
+          )}
         </div>
 
         {/* Analyze Button */}
@@ -158,7 +165,4 @@ export default function Home() {
       </div>
     </div>
   );
-
-
 }
->>>>>>> origin/chirag-code

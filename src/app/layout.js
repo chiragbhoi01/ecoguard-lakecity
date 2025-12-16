@@ -1,16 +1,5 @@
-<<<<<<< HEAD
-import './globals.css';
-
-export default function RootLayout({ children }) {
-  return (
-    <html lang="en">
-      <body>{children}</body>
-    </html>
-  );
-}
-=======
 'use client';
-
+import React from 'react';
 import './globals.css';
 import { useEffect } from 'react';
 import ToasterProvider from '../components/Toaster';
@@ -58,5 +47,3 @@ export default function RootLayout({ children }) {
     </html>
   );
 }
-
->>>>>>> origin/chirag-code
