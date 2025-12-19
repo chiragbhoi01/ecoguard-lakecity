@@ -2,7 +2,16 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 import { db } from "../../../lib/firebase"; // Using relative path
 import logger from "../../../lib/logger"; // Import the logger
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import {
+  collection,
+  addDoc,
+  serverTimestamp,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  increment,
+} from "firebase/firestore";
 
 export async function POST(req) {
   try {
@@ -42,46 +51,67 @@ export async function POST(req) {
 
     const response = result.response;
     const responseText = response.candidates[0].content.parts[0].text;
-    const cleanedResponseText = responseText.replace(/```json\n|\n```/g, '');
+    const cleanedResponseText = responseText.replace(/```json\n|\n```/g, "");
     let analysis;
     try {
       analysis = JSON.parse(cleanedResponseText);
     } catch (parseError) {
-      logger.error("Failed to parse AI response as JSON:", { parseError, responseText });
+      logger.error("Failed to parse AI response as JSON:", {
+        parseError,
+        responseText,
+      });
       return NextResponse.json(
         { success: false, error: "AI response was not valid JSON." },
         { status: 500 }
       );
     }
 
-    // --- UPDATED SAVE TO FIRESTORE LOGIC ---
     let reportId = null;
-    try {
-      logger.info("Attempting to add document to Firestore", { analysis });
-      logger.info("Firestore db object", { db });
-      // Create a reference to the 'reports' collection
-      const reportsCollection = collection(db, "reports");
+    if (analysis.isWaste) {
+      try {
+        const reportsCollection = collection(db, "reports");
+        const docRef = await addDoc(reportsCollection, {
+          ...analysis,
+          imageUrl: "placeholder_image_url",
+          location: location || { lat: 24.5854, lng: 73.7125 },
+          status: "pending",
+          createdAt: serverTimestamp(),
+          reportedBy: "user_chirag", // Hardcoded user
+        });
+        reportId = docRef.id;
+        logger.info("Document written with ID: ", { reportId });
 
-      // Use addDoc to save the new data structure
-      const docRef = await addDoc(reportsCollection, {
-        ...analysis, // Spread the AI result
-        imageUrl: "placeholder_image_url",
-        location: location || { lat: 24.5854, lng: 73.7125 }, // Udaipur Coordinates
-        status: "pending",
-        createdAt: serverTimestamp(),
-      });
+        // --- GAMIFICATION LOGIC ---
+        const userId = "user_chirag";
+        const userRef = doc(db, "users", userId);
+        const userSnap = await getDoc(userRef);
 
-      reportId = docRef.id;
-      logger.info("Document written with ID: ", { reportId });
-    } catch (dbError) {
-      logger.error("Error adding document to Firestore:", { dbError });
-      // reportId remains null if saving fails, but we'll still return the analysis
+        if (userSnap.exists()) {
+          await updateDoc(userRef, { points: increment(10) });
+          logger.info("User points incremented by 10", { userId });
+        } else {
+          await setDoc(userRef, {
+            name: "Chirag Bhoi",
+            points: 10,
+            avatar: "😎",
+            joinedAt: serverTimestamp(),
+          });
+          logger.info("New user created with 10 points", { userId });
+        }
+        // --- END GAMIFICATION LOGIC ---
+      } catch (dbError) {
+        logger.error("Error adding document to Firestore:", { dbError });
+      }
     }
-    // --- END OF FIRESTORE LOGIC ---
 
-    // Update the final response to include the new reportId
     return NextResponse.json(
-      { success: true, reportId: reportId, analysis: analysis },
+      {
+        success: true,
+        reportId: reportId,
+        analysis: analysis,
+        isWaste: analysis.isWaste,
+        pointsAwarded: analysis.isWaste ? 10 : 0,
+      },
       { status: 200 }
     );
   } catch (error) {

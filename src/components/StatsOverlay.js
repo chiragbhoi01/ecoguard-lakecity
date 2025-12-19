@@ -35,7 +35,7 @@ const StatsOverlay = () => {
   }, []);
 
   return (
-    <div className='absolute top-5 left-5 z-10 flex gap-4'>
+    <div className='absolute top-5 left-1/2 transform -translate-x-1/2 z-10 flex gap-4'>
       {/* Total Reports Card */}
       <div className='bg-slate-900/80 backdrop-blur-md p-4 rounded-xl border border-slate-700 text-white shadow-lg flex items-center gap-4'>
         <span className='text-3xl'>📊</span>

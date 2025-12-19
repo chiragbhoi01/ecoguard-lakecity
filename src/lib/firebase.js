@@ -16,6 +16,6 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const storage = getStorage(app);
-const db = getFirestore(app);
-
+// Bracket ke andar apne naye database ka naam likho
+export const db = getFirestore(app, "ecoguard-live");
 export { storage, db };

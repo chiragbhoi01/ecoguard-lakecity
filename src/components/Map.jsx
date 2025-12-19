@@ -1,7 +1,7 @@
 'use client';
 import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api';
 import { db } from '../lib/firebase';
-import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, increment } from 'firebase/firestore';
 import { useState, useEffect } from 'react';
 
 const containerStyle = {
@@ -50,7 +50,7 @@ const getMarkerIcon = (report) => {
     case 'Medium':
       return 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png';
     case 'Low':
-      return 'http://maps.google.com/mapfiles/ms/icons/green-dot.png';
+      return 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png';
     default:
       return 'http://maps.google.com/mapfiles/ms/icons/red-dot.png';
   }
@@ -78,21 +78,30 @@ const Map = () => {
 
   const handleResolve = async (reportId) => {
     const reportRef = doc(db, 'reports', reportId);
+    const userId = 'user_chirag'; // Hardcoded user
+    const userRef = doc(db, 'users', userId);
+
     try {
+      // Update report status
       await updateDoc(reportRef, {
         status: 'resolved',
-        severity: 'Low', // Note: Severity is now 'Low' as it's resolved
+        severity: 'low',
+      });
+
+      // Award points to the user
+      await updateDoc(userRef, {
+        points: increment(50),
       });
 
       // Optimistic UI update
       setReports(prevReports =>
         prevReports.map(report =>
-          report.id === reportId ? { ...report, status: 'resolved', severity: 'Low' } : report
+          report.id === reportId ? { ...report, status: 'resolved', severity: 'low' } : report
         )
       );
       setSelectedReport(null); // Close InfoWindow
-      console.log('Report resolved!');
-      alert('Report resolved!');
+
+      alert('Report Cleaned! 🎉 You earned 50 Points!');
     } catch (error) {
       console.error("Error updating document: ", error);
       alert('Failed to resolve report.');
@@ -129,17 +138,17 @@ const Map = () => {
           position={selectedReport.location}
           onCloseClick={() => setSelectedReport(null)}
         >
-          <div className='p-2 bg-slate-900 text-white rounded-lg shadow-lg'>
+          <div className='p-2 bg-white text-black rounded-lg shadow-lg'>
             <h3 className='font-bold text-lg mb-2'>{selectedReport.title || 'Waste Report'}</h3>
             <p><span className='font-semibold'>Severity:</span> {selectedReport.severity}</p>
             <p><span className='font-semibold'>Status:</span> {selectedReport.status}</p>
             {selectedReport.description && <p className='mt-2 text-sm'>{selectedReport.description}</p>}
             
             {selectedReport.status !== 'resolved' && (
-              <div className='mt-4'>
+              <div className='mt-2'>
                 <button
                   onClick={() => handleResolve(selectedReport.id)}
-                  className='bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-lg text-sm'
+                  className='bg-green-600 text-white px-3 py-1 rounded-full text-sm'
                 >
                   ✅ Mark as Cleaned
                 </button>
