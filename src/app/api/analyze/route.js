@@ -15,26 +15,39 @@ import {
 
 export async function POST(req) {
   try {
-    const { image, location } = await req.json(); // 'image' is expected to be a base64 string
+    console.log("Step 1: POST request received at /api/analyze");
+
+    // 1. Check API Key first
+    if (!process.env.GEMINI_API_KEY) {
+      console.error("Step 1.1: GEMINI_API_KEY is missing in server environment");
+      throw new Error("API Key is missing in server environment");
+    }
+    console.log("Step 2: API Key found");
+
+    // 2. Parse Request
+    const body = await req.json();
+    const { image, location } = body;
+    console.log("Step 3: Request parsed. Image present?", !!image, "Location:", location);
 
     if (!image) {
-      logger.error("Image data (base64 string) is required");
+      console.error("Step 3.1: No image data provided");
       return NextResponse.json(
         { success: false, error: "Image data (base64 string) is required" },
         { status: 400 }
       );
     }
 
+    // 3. Initialize Gemini
+    console.log("Step 4: Initializing Gemini...");
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "models/gemini-2.5-flash" });
+    // gemini-1.5-flash was not found, using gemini-2.0-flash from available models
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
     const prompt =
       'Analyze this image. Identify if it contains waste/garbage. Return a strict JSON object: { "isWaste": boolean, "wasteType": "Plastic"|"Organic"|"Construction"|"Mixed"|"None", "severity": "Low"|"Medium"|"High", "description": "Short summary" }. Do not use Markdown formatting in response.';
 
     const parts = [
-      {
-        text: prompt,
-      },
+      { text: prompt },
       {
         inlineData: {
           mimeType: "image/jpeg",
@@ -43,31 +56,30 @@ export async function POST(req) {
       },
     ];
 
+    console.log("Step 5: Sending request to Gemini...");
     const result = await model.generateContent({
       contents: [{ role: "user", parts }],
     });
-
-    logger.info("Gemini API result", { result });
+    console.log("Step 6: Gemini response received");
 
     const response = result.response;
-    const responseText = response.candidates[0].content.parts[0].text;
-    const cleanedResponseText = responseText.replace(/```json\n|\n```/g, "");
+    const responseText = response.text(); // Using .text() is safer/easier
+    console.log("Step 7: Raw text from Gemini:", responseText);
+
+    const cleanedResponseText = responseText.replace(/```json\n|\n```/g, "").replace(/```/g, "");
+
     let analysis;
     try {
       analysis = JSON.parse(cleanedResponseText);
+      console.log("Step 8: JSON parsed successfully:", analysis);
     } catch (parseError) {
-      logger.error("Failed to parse AI response as JSON:", {
-        parseError,
-        responseText,
-      });
-      return NextResponse.json(
-        { success: false, error: "AI response was not valid JSON." },
-        { status: 500 }
-      );
+      console.error("Step 8.1: JSON Parse Error:", parseError);
+      throw new Error("Failed to parse AI response: " + responseText);
     }
 
     let reportId = null;
     if (analysis.isWaste) {
+      console.log("Step 9: Waste detected. Saving to Firestore...");
       try {
         const reportsCollection = collection(db, "reports");
         const docRef = await addDoc(reportsCollection, {
@@ -79,7 +91,7 @@ export async function POST(req) {
           reportedBy: "user_chirag", // Hardcoded user
         });
         reportId = docRef.id;
-        logger.info("Document written with ID: ", { reportId });
+        console.log("Step 10: Report saved with ID:", reportId);
 
         // --- GAMIFICATION LOGIC ---
         const userId = "user_chirag";
@@ -88,7 +100,7 @@ export async function POST(req) {
 
         if (userSnap.exists()) {
           await updateDoc(userRef, { points: increment(10) });
-          logger.info("User points incremented by 10", { userId });
+          console.log("Step 11: User points incremented");
         } else {
           await setDoc(userRef, {
             name: "Chirag Bhoi",
@@ -96,12 +108,17 @@ export async function POST(req) {
             avatar: "😎",
             joinedAt: serverTimestamp(),
           });
-          logger.info("New user created with 10 points", { userId });
+          console.log("Step 11: New user created");
         }
         // --- END GAMIFICATION LOGIC ---
       } catch (dbError) {
-        logger.error("Error adding document to Firestore:", { dbError });
+        console.error("Step 9.1: Firestore Error:", dbError);
+        // We log it but maybe don't want to crash the whole user response if just DB fails? 
+        // For now, let's treat it as critical for debugging.
+        throw new Error("Firestore Error: " + dbError.message);
       }
+    } else {
+      console.log("Step 9: No waste detected, skipping Firestore save.");
     }
 
     return NextResponse.json(
@@ -114,10 +131,15 @@ export async function POST(req) {
       },
       { status: 200 }
     );
+
   } catch (error) {
-    logger.error("Error analyzing image:", error);
+    console.error("CRITICAL ERROR during analysis:", error);
     return NextResponse.json(
-      { success: false, error: "Failed to analyze image." },
+      {
+        success: false,
+        error: error.message || "Unknown Server Error",
+        details: error.toString()
+      },
       { status: 500 }
     );
   }

@@ -3,6 +3,7 @@ import React from 'react';
 import './globals.css';
 import { useEffect } from 'react';
 import ToasterProvider from '../components/Toaster';
+import BottomNav from '../components/BottomNav';
 
 export default function RootLayout({ children }) {
   useEffect(() => {
@@ -40,9 +41,10 @@ export default function RootLayout({ children }) {
 
   return (
     <html lang="en">
-      <body>
+      <body className="bg-gray-900">
         <ToasterProvider />
-        {children}
+        <main className="pb-16">{children}</main>
+        <BottomNav />
       </body>
     </html>
   );
