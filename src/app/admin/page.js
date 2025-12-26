@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { db } from '../../lib/firebase';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, doc, updateDoc, increment } from 'firebase/firestore';
 import { AlertTriangle, MapPin } from 'lucide-react';
 import { UserAuth } from '../../context/AuthContext';
 
@@ -70,7 +70,24 @@ const AdminDashboardPage = () => {
     }
 
     const reportRef = doc(db, 'reports', reportId);
-    const userId = user.uid; // Get UID from authenticated user
+    
+    try {
+      // Update the report status to 'cleaned'
+      await updateDoc(reportRef, { status: 'cleaned' });
+
+      // Increment the user's points
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, { points: increment(20) });
+
+      // Update the UI by removing the cleaned report
+      setReports(reports.filter(report => report.id !== reportId));
+      
+      alert('Report marked as cleaned and points awarded!');
+    } catch (error) {
+      console.error("Error resolving report: ", error);
+      alert('Failed to resolve report. Please try again.');
+    }
+  };
 
   if (loading) {
     return (
@@ -118,13 +135,21 @@ const AdminDashboardPage = () => {
                     Reported on: {formatDate(report.createdAt)}
                   </div>
                   
-                  <button 
-                    onClick={() => handleViewLocation(report.location?.lat, report.location?.lng)}
-                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-all transform active:scale-95"
-                  >
-                    <MapPin size={16} />
-                    View Location
-                  </button>
+                  <div className="flex flex-col gap-2">
+                    <button 
+                      onClick={() => handleViewLocation(report.location?.lat, report.location?.lng)}
+                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-all transform active:scale-95"
+                    >
+                      <MapPin size={16} />
+                      View Location
+                    </button>
+                    <button
+                      onClick={() => handleResolve(report.id)}
+                      className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-2 transition-all transform active:scale-95"
+                    >
+                      Mark as Cleaned
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

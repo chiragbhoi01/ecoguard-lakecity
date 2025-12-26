@@ -5,6 +5,9 @@ const react = require("eslint-plugin-react");
 
 module.exports = [
     {
+        ignores: [".next/", "node_modules/"],
+    },
+    {
         files: ["src/**/*.{js,jsx}"],
         plugins: {
             react: react,
