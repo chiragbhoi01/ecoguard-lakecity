@@ -5,6 +5,8 @@ import { useEffect } from 'react';
 import ToasterProvider from '../components/Toaster';
 import BottomNav from '../components/BottomNav';
 
+import { AuthContextProvider } from '../context/AuthContext';
+
 export default function RootLayout({ children }) {
   useEffect(() => {
     const style = document.createElement('style');
@@ -42,9 +44,11 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className="bg-gray-900">
-        <ToasterProvider />
-        <main className="pb-16">{children}</main>
-        <BottomNav />
+        <AuthContextProvider>
+          <ToasterProvider />
+          <main className="pb-16">{children}</main>
+          <BottomNav />
+        </AuthContextProvider>
       </body>
     </html>
   );

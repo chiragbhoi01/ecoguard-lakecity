@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
-import { db } from "../../../lib/firebase";
+import { db, storage } from "../../../lib/firebase";
+import { ref, uploadString, getDownloadURL } from "firebase/storage";
 import {
   collection,
   addDoc,
@@ -20,6 +21,35 @@ try {
   console.log("Logger file not found, using console.");
 }
 
+// Helper function for retrying the Gemini API call
+async function generateWithRetry(model, prompt, image, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const result = await model.generateContent({
+        contents: [{
+          role: "user",
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType: "image/jpeg", data: image } }
+          ]
+        }]
+      });
+      return result;
+    } catch (error) {
+      // Check if the error is a 429 or 503
+      const isRateLimitError = error.message.includes('429') || error.message.includes('503');
+      if (isRateLimitError && i < retries - 1) {
+        logger.warn(`Attempt ${i + 1} failed with rate limit error. Retrying in 2 seconds...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else {
+        throw error;
+      }
+    }
+  }
+  throw new Error("Failed to get a response from the model after multiple retries.");
+}
+
+
 export async function POST(req) {
   try {
     logger.info("POST request received at /api/analyze");
@@ -34,12 +64,18 @@ export async function POST(req) {
 
     // 2. Parse Request
     const body = await req.json();
-    const { image, location } = body;
+    const { image, location, userId, userName } = body;
 
     if (!image) {
       return NextResponse.json(
         { success: false, error: "Image data is required" },
         { status: 400 }
+      );
+    }
+    if (!userId || !userName) {
+      return NextResponse.json(
+        { success: false, error: "User information is required" },
+        { status: 401 }
       );
     }
 
@@ -49,15 +85,7 @@ export async function POST(req) {
 
     const prompt = 'Analyze this image. Identify if it contains waste/garbage. Return a strict JSON object: { "isWaste": boolean, "wasteType": "Plastic"|"Organic"|"Construction"|"Mixed"|"None", "severity": "Low"|"Medium"|"High", "description": "Short summary" }. Do not use Markdown formatting in the response.';
 
-    const result = await model.generateContent({
-      contents: [{
-        role: "user",
-        parts: [
-          { text: prompt },
-          { inlineData: { mimeType: "image/jpeg", data: image } }
-        ]
-      }]
-    });
+    const result = await generateWithRetry(model, prompt, image);
 
     const responseText = result.response.text();
     const cleanedResponseText = responseText.replace(/```json\n|\n```/g, "").trim();
@@ -65,27 +93,32 @@ export async function POST(req) {
 
     let reportId = null;
     if (analysis.isWaste) {
-      // Save to Firestore
+      // 1. Upload Image to Storage
+      const storageRef = ref(storage, 'reports/' + Date.now() + '.jpg');
+      await uploadString(storageRef, image, 'base64');
+      const imageUrl = await getDownloadURL(storageRef);
+
+      // 2. Save Report to Firestore
       const reportsCollection = collection(db, "reports");
       const docRef = await addDoc(reportsCollection, {
         ...analysis,
-        imageUrl: "placeholder_image_url",
+        imageUrl: imageUrl, // Use the real URL
         location: location || { lat: 24.5854, lng: 73.7125 },
         status: "pending",
         createdAt: serverTimestamp(),
-        reportedBy: "user_chirag", // ✅ Hardcoded User (Safe for Demo)
+        reportedBy: userId,
       });
       reportId = docRef.id;
 
       // Points Logic
-      const userRef = doc(db, "users", "user_chirag");
+      const userRef = doc(db, "users", userId);
       const userSnap = await getDoc(userRef);
 
       if (userSnap.exists()) {
         await updateDoc(userRef, { points: increment(10) });
       } else {
         await setDoc(userRef, {
-          name: "Chirag Bhoi",
+          name: userName,
           points: 10,
           avatar: "😎",
           joinedAt: serverTimestamp(),

@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
-
+import { db } from '../lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { UserAuth } from "../context/AuthContext";
 
 const UploadIcon = () => (
   <svg className="w-12 h-12 mb-4 text-slate-400 group-hover:text-green-400 transition-colors" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
@@ -18,14 +20,17 @@ const Loader = () => (
 );
 
 export default function Home() {
+  const { user, googleSignIn, logOut } = UserAuth();
   const [image, setImage] = useState({ preview: null, data: null });
   const [loading, setLoading] = useState(false);
   const [location, setLocation] = useState(null);
   const [status, setStatus] = useState({ message: "", type: "" });
+  const [points, setPoints] = useState(0);
+  const [pulse, setPulse] = useState(false);
 
   // Get User Location on Load
   useEffect(() => {
-    if (navigator.geolocation) {
+    if (user && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           setLocation({
@@ -36,7 +41,25 @@ export default function Home() {
         (error) => console.error("Error getting location:", error)
       );
     }
-  }, []);
+  }, [user]);
+
+  // Listen for real-time points updates
+  useEffect(() => {
+    if (user) {
+      const userRef = doc(db, 'users', user.uid);
+      const unsubscribe = onSnapshot(userRef, (doc) => {
+        if (doc.exists()) {
+          const newPoints = doc.data().points;
+          if (newPoints !== points) {
+            setPoints(newPoints);
+            setPulse(true);
+            setTimeout(() => setPulse(false), 1000); // Reset pulse animation
+          }
+        }
+      });
+      return () => unsubscribe();
+    }
+  }, [user, points]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -55,6 +78,7 @@ export default function Home() {
   const analyzeImage = async () => {
     if (!image.data) return setStatus({ message: "Please upload an image first!", type: "error" });
     if (!location) return setStatus({ message: "Waiting for location... please allow permissions.", type: "error" });
+    if (!user) return setStatus({ message: "You must be logged in to analyze images.", type: "error" });
 
     setLoading(true);
     setStatus({ message: "Analyzing waste...", type: "info" });
@@ -67,6 +91,8 @@ export default function Home() {
         body: JSON.stringify({
           image: image.data,
           location: location,
+          userId: user.uid,
+          userName: user.displayName,
         }),
       });
 
@@ -74,14 +100,10 @@ export default function Home() {
       setLoading(false);
 
       if (data.success && data.result) {
-        // Fallback for previous API structure if it returned result directly? 
-        // Logic in route.js returns { success: true, analysis: ... } now.
-        // Let's adjust to handle 'analysis' or 'result' just in case.
         setStatus({ message: `✅ Result: ${data.analysis ? data.analysis.wasteType : data.result}`, type: "success" });
       } else if (data.success && data.analysis) {
         setStatus({ message: `✅ Analysis Complete: ${data.analysis.wasteType} Detected`, type: "success" });
       } else {
-        // Show specific error from backend
         setStatus({
           message: `❌ Error: ${data.error || "Analysis failed. Try again."}`,
           type: "error"
@@ -96,77 +118,101 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-      {/* Glassmorphism Card */}
-      <div className="bg-slate-800/50 backdrop-blur-md border border-slate-700 p-8 rounded-2xl shadow-2xl w-full max-w-md">
-
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">♻️ EcoGuard</h1>
-          <p className="text-slate-400 text-sm">AI-Powered Waste Detection System</p>
-        </div>
-
-        {/* Upload Area */}
-        <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-slate-600 rounded-xl cursor-pointer bg-slate-800/30 hover:bg-slate-700/50 hover:border-green-500 transition-all group">
-
-          {image.preview ? (
-            <img
-              src={image.preview}
-              alt="Preview"
-              className="w-full h-full object-cover rounded-xl"
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center pt-5 pb-6">
-              <UploadIcon />
-              <p className="mb-2 text-sm text-slate-400"><span className="font-semibold text-white">Click to upload</span> or drag and drop</p>
-              <p className="text-xs text-slate-500">PNG, JPG or GIF</p>
+      {user ? (
+        <>
+          {/* Points Badge and Sign Out Button */}
+          <div className="fixed top-4 right-4 flex items-center gap-4">
+            <div className={`px-4 py-2 rounded-full bg-green-100 text-green-800 font-bold text-lg shadow-lg flex items-center gap-2 ${pulse ? 'animate-pulse' : ''}`}>
+              <span>🌱</span>
+              <span>Eco Points: {points}</span>
             </div>
-          )}
-          <input type="file" className="hidden" onChange={handleFileChange} accept="image/*" />
-        </label>
-
-        {/* Location Status */}
-        <div className="mt-4 flex items-center justify-center space-x-2">
-          {location ? (
-            <span className="text-xs text-green-400 bg-green-400/10 px-2 py-1 rounded-full flex items-center">
-              📍 Location Active
-            </span>
-          ) : (
-            <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded-full animate-pulse">
-              📡 Detecting Location...
-            </span>
-          )}
-        </div>
-
-        {/* Analyze Button */}
-        <button
-          onClick={analyzeImage}
-          disabled={loading || !location}
-          className={`w-full mt-6 py-3.5 rounded-xl font-semibold text-white shadow-lg transition-all transform active:scale-95 ${loading || !location
-              ? "bg-slate-600 cursor-not-allowed opacity-50"
-              : "bg-gradient-to-r from-green-500 to-emerald-600 hover:shadow-green-500/25 hover:-translate-y-1"
-            }`}
-        >
-          {loading ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader />
-              Analyzing...
-            </span>
-          ) : (
-            "Analyze Waste 🔍"
-          )}
-        </button>
-
-        {/* Result Area */}
-        {status.message && (
-          <div className={`mt-4 p-4 rounded-lg text-center text-sm font-medium ${status.type === "error"
-              ? "bg-red-500/10 text-red-400 border border-red-500/20"
-              : "bg-green-500/10 text-green-400 border border-green-500/20"
-            }`}>
-            {status.message}
+            <button onClick={logOut} className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-full shadow-lg">
+              Sign Out
+            </button>
           </div>
-        )}
 
-      </div>
+          {/* Glassmorphism Card */}
+          <div className="bg-slate-800/50 backdrop-blur-md border border-slate-700 p-8 rounded-2xl shadow-2xl w-full max-w-md">
+
+            {/* Header */}
+            <div className="text-center mb-8">
+              <h1 className="text-3xl font-bold text-white mb-2">♻️ EcoGuard</h1>
+              <p className="text-slate-400 text-sm">AI-Powered Waste Detection System</p>
+            </div>
+
+            {/* Upload Area */}
+            <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-slate-600 rounded-xl cursor-pointer bg-slate-800/30 hover:bg-slate-700/50 hover:border-green-500 transition-all group">
+
+              {image.preview ? (
+                <img
+                  src={image.preview}
+                  alt="Preview"
+                  className="w-full h-full object-cover rounded-xl"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                  <UploadIcon />
+                  <p className="mb-2 text-sm text-slate-400"><span className="font-semibold text-white">Click to upload</span> or drag and drop</p>
+                  <p className="text-xs text-slate-500">PNG, JPG or GIF</p>
+                </div>
+              )}
+              <input type="file" className="hidden" onChange={handleFileChange} accept="image/*" />
+            </label>
+
+            {/* Location Status */}
+            <div className="mt-4 flex items-center justify-center space-x-2">
+              {location ? (
+                <span className="text-xs text-green-400 bg-green-400/10 px-2 py-1 rounded-full flex items-center">
+                  📍 Location Active
+                </span>
+              ) : (
+                <span className="text-xs text-yellow-400 bg-yellow-400/10 px-2 py-1 rounded-full animate-pulse">
+                  📡 Detecting Location...
+                </span>
+              )}
+            </div>
+
+            {/* Analyze Button */}
+            <button
+              onClick={analyzeImage}
+              disabled={loading || !location}
+              className={`w-full mt-6 py-3.5 rounded-xl font-semibold text-white shadow-lg transition-all transform active:scale-95 ${loading || !location
+                  ? "bg-slate-600 cursor-not-allowed opacity-50"
+                  : "bg-gradient-to-r from-green-500 to-emerald-600 hover:shadow-green-500/25 hover:-translate-y-1"
+                }`}
+            >
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Loader />
+                  Analyzing...
+                </span>
+              ) : (
+                "Analyze Waste 🔍"
+              )}
+            </button>
+
+            {/* Result Area */}
+            {status.message && (
+              <div className={`mt-4 p-4 rounded-lg text-center text-sm font-medium ${status.type === "error"
+                  ? "bg-red-500/10 text-red-400 border border-red-500/20"
+                  : "bg-green-500/10 text-green-400 border border-green-500/20"
+                }`}>
+                {status.message}
+              </div>
+            )}
+
+          </div>
+        </>
+      ) : (
+        <div className="text-center">
+          <h1 className="text-5xl font-bold text-white mb-4">Welcome to EcoGuard</h1>
+          <p className="text-slate-400 text-lg mb-8">Sign in to start protecting the environment.</p>
+          <button onClick={googleSignIn} className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-3 px-8 rounded-full shadow-lg hover:shadow-xl transition-all transform hover:scale-105">
+            Sign in with Google
+          </button>
+        </div>
+      )}
     </div>
   );
-} 
+}
+ 
