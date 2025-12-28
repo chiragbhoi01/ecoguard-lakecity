@@ -1,8 +1,6 @@
 'use client';
 import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api';
-import { db } from '../lib/firebase';
-import { collection, getDocs, doc, updateDoc, increment } from 'firebase/firestore';
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 
 const containerStyle = {
   width: '100%',
@@ -14,106 +12,66 @@ const center = {
   lng: 73.7124,
 };
 
+// A professional "Smart City" map style (Silver Theme)
 const mapOptions = {
   styles: [
-    { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
-    { elementType: 'labels.text.stroke', stylers: [{ color: '#242f3e' }] },
-    { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
-    { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
-    { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
+    { elementType: 'geometry', stylers: [{ color: '#f5f5f5' }] },
+    { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+    { elementType: 'labels.text.fill', stylers: [{ color: '#616161' }] },
+    { elementType: 'labels.text.stroke', stylers: [{ color: '#f5f5f5' }] },
+    { featureType: 'administrative.land_parcel', elementType: 'labels.text.fill', stylers: [{ color: '#bdbdbd' }] },
+    { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#eeeeee' }] },
+    { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#757575' }] },
     { featureType: 'poi.business', stylers: [{ visibility: 'off' }] },
-    { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#263c3f' }] },
-    { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#6b9a76' }] },
-    { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#38414e' }] },
-    { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#212a37' }] },
-    { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#9ca5b3' }] },
-    { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#746855' }] },
-    { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1f2835' }] },
-    { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#f3d19c' }] },
-    { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2f3948' }] },
-    { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
-    { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#17263c' }] },
-    { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#515c6d' }] },
-    { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#17263c' }] },
+    { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#e5e5e5' }] },
+    { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#9e9e9e' }] },
+    { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#ffffff' }] },
+    { featureType: 'road.arterial', elementType: 'labels.text.fill', stylers: [{ color: '#757575' }] },
+    { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#dadada' }] },
+    { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#616161' }] },
+    { featureType: 'road.local', elementType: 'labels.text.fill', stylers: [{ color: '#9e9e9e' }] },
+    { featureType: 'transit.line', elementType: 'geometry', stylers: [{ color: '#e5e5e5' }] },
+    { featureType: 'transit.station', elementType: 'geometry', stylers: [{ color: '#eeeeee' }] },
+    { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#c9c9c9' }] },
+    { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#9e9e9e' }] },
   ],
   disableDefaultUI: true,
   zoomControl: true,
 };
 
-const getMarkerIcon = (report) => {
-  if (report.status === 'resolved') {
-    return 'http://maps.google.com/mapfiles/ms/icons/green-dot.png';
-  }
-  switch (report.severity) {
-    case 'High':
-      return 'http://maps.google.com/mapfiles/ms/icons/red-dot.png';
-    case 'Medium':
-      return 'http://maps.google.com/mapfiles/ms/icons/yellow-dot.png';
-    case 'Low':
-      return 'http://maps.google.com/mapfiles/ms/icons/blue-dot.png';
-    default:
-      return 'http://maps.google.com/mapfiles/ms/icons/red-dot.png';
-  }
+const getMarkerIcon = (wasteType) => {
+  let color = '#3498db'; // Default blue
+  if (wasteType === 'Organic') color = '#2ecc71'; // Green
+  if (wasteType === 'Plastic') color = '#e74c3c'; // Red
+  if (wasteType === 'Metal') color = '#95a5a6'; // Gray
+
+  return {
+    path: window.google.maps.SymbolPath.CIRCLE,
+    fillColor: color,
+    fillOpacity: 0.9,
+    scale: 8,
+    strokeColor: 'white',
+    strokeWeight: 2,
+  };
 };
 
-const Map = () => {
-  const [reports, setReports] = useState([]);
+const Map = ({ reports }) => {
   const [selectedReport, setSelectedReport] = useState(null);
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'google-map-script',
     googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
   });
 
-  useEffect(() => {
-    const fetchReports = async () => {
-      const querySnapshot = await getDocs(collection(db, 'reports'));
-      const reportsData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setReports(reportsData);
-    };
-    fetchReports();
+  const onMapLoad = useCallback(() => {
+    // You can use the map instance here if needed
   }, []);
-
-  const handleResolve = async (reportId) => {
-    const reportRef = doc(db, 'reports', reportId);
-    const userId = 'user_chirag'; // Hardcoded user
-    const userRef = doc(db, 'users', userId);
-
-    try {
-      // Update report status
-      await updateDoc(reportRef, {
-        status: 'resolved',
-        severity: 'low',
-      });
-
-      // Award points to the user
-      await updateDoc(userRef, {
-        points: increment(50),
-      });
-
-      // Optimistic UI update
-      setReports(prevReports =>
-        prevReports.map(report =>
-          report.id === reportId ? { ...report, status: 'resolved', severity: 'low' } : report
-        )
-      );
-      setSelectedReport(null); // Close InfoWindow
-
-      alert('Report Cleaned! 🎉 You earned 50 Points!');
-    } catch (error) {
-      console.error("Error updating document: ", error);
-      alert('Failed to resolve report.');
-    }
-  };
 
   if (loadError) {
     return <div>Error loading map</div>;
   }
 
   if (!isLoaded) {
-    return <div className='h-full flex items-center justify-center text-white'>Loading Google Maps...</div>;
+    return <div className='h-full flex items-center justify-center text-slate-400'>Loading Smart Map...</div>;
   }
 
   return (
@@ -122,13 +80,14 @@ const Map = () => {
       center={center}
       zoom={13}
       options={mapOptions}
+      onLoad={onMapLoad}
       onClick={() => setSelectedReport(null)}
     >
       {reports.map(report => (
         <Marker
           key={report.id}
           position={report.location}
-          icon={getMarkerIcon(report)}
+          icon={getMarkerIcon(report.wasteType)}
           onClick={() => setSelectedReport(report)}
         />
       ))}
@@ -138,22 +97,22 @@ const Map = () => {
           position={selectedReport.location}
           onCloseClick={() => setSelectedReport(null)}
         >
-          <div className='p-2 bg-white text-black rounded-lg shadow-lg'>
-            <h3 className='font-bold text-lg mb-2'>{selectedReport.title || 'Waste Report'}</h3>
-            <p><span className='font-semibold'>Severity:</span> {selectedReport.severity}</p>
-            <p><span className='font-semibold'>Status:</span> {selectedReport.status}</p>
-            {selectedReport.description && <p className='mt-2 text-sm'>{selectedReport.description}</p>}
-            
-            {selectedReport.status !== 'resolved' && (
-              <div className='mt-2'>
-                <button
-                  onClick={() => handleResolve(selectedReport.id)}
-                  className='bg-green-600 text-white px-3 py-1 rounded-full text-sm'
-                >
-                  ✅ Mark as Cleaned
-                </button>
-              </div>
-            )}
+          <div className='p-1 bg-slate-900 text-white rounded-lg shadow-xl font-sans max-w-xs'>
+             {selectedReport.imageUrl && <img src={selectedReport.imageUrl} alt={selectedReport.wasteType} className="w-full h-32 object-cover rounded-t-md mb-2"/>}
+             <div className="p-2">
+                <p>
+                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        selectedReport.wasteType === 'Organic' ? 'bg-green-500/20 text-green-300' :
+                        selectedReport.wasteType === 'Plastic' ? 'bg-red-500/20 text-red-300' :
+                        'bg-blue-500/20 text-blue-300'
+                    }`}>
+                        {selectedReport.wasteType}
+                    </span>
+                </p>
+                <p className='mt-2 text-xs text-slate-400'>
+                    Reported: {new Date(selectedReport.createdAt?.toDate()).toLocaleString()}
+                </p>
+             </div>
           </div>
         </InfoWindow>
       )}
