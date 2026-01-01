@@ -1,273 +1,191 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { db } from '../../lib/firebase';
-import { collection, onSnapshot, query, orderBy, updateDoc, doc, increment } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { UserAuth } from '../../context/AuthContext';
-import { LayoutDashboard, Map as MapIcon, FileText, Bell, Trash2, Route, Zap, CheckCircle } from 'lucide-react';
-import Map from '../../components/Map';
+import { useState, useEffect, useRef } from 'react';
+import { db, storage } from '../../lib/firebase';
+import { collection, getDocs, writeBatch, query, orderBy, onSnapshot, Timestamp, doc, updateDoc } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { Bell, Trash, Leaf, Server, ChevronDown, AlertTriangle, Upload, CheckCircle } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
+import MapComponent from '../../components/Map';
+
+// --- Data Seeding ---
+const seedDatabase = async () => {
+    try {
+        const reportsRef = collection(db, "reports");
+        const q = query(reportsRef);
+        const querySnapshot = await getDocs(q);
+
+        if (querySnapshot.empty) {
+            toast.loading('No reports found. Seeding database with 15 mock reports...', { duration: 2000 });
+            const batch = writeBatch(db);
+            const userLocation = { lat: 23.5461, lng: 74.4350 }; // Banswara, Rajasthan
+            const wasteTypes = ['Gutka Packet', 'Amul Milk Pouch', 'Bisleri Bottle', 'Tea Cups'];
+
+            for (let i = 0; i < 15; i++) {
+                const docRef = collection(db, 'reports').doc();
+                const isPending = Math.random() > 0.3;
+                batch.set(docRef, {
+                    wasteType: wasteTypes[Math.floor(Math.random() * wasteTypes.length)],
+                    severity: ['Low', 'Medium', 'High'][Math.floor(Math.random() * 3)],
+                    status: isPending ? 'pending' : 'cleaned',
+                    createdAt: Timestamp.fromDate(new Date(Date.now() - Math.random() * 1000 * 60 * 60 * 24 * 7)),
+                    location: {
+                        lat: userLocation.lat + (Math.random() - 0.5) * 0.05, // Smaller deviation for realism
+                        lng: userLocation.lng + (Math.random() - 0.5) * 0.05, // Smaller deviation for realism
+                    },
+                    imageUrl: `https://picsum.photos/seed/${i}/400/300`
+                });
+            }
+            await batch.commit();
+            toast.success('Database seeded successfully!');
+        }
+    } catch (error) {
+        toast.error('Failed to seed database.');
+    }
+};
 
 // --- Reusable Components ---
+const Sparkline = ({ data = [5, 10, 15, 12, 18, 20, 17, 22, 25, 23], color = "currentColor" }) => {
+    const points = data.map((d, i) => `${(i / (data.length - 1)) * 100},${30 - (d / Math.max(...data)) * 28}`).join(' ');
+    return <svg width="100%" height="30" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline points={points} fill="none" stroke={color} strokeWidth="2" /></svg>;
+};
 
-const Sidebar = () => (
-  <aside className="bg-slate-900 text-white w-64 h-screen p-4 flex-col hidden md:flex">
-    <div className="text-3xl font-bold text-emerald-400 mb-10">
-      <Trash2 className="inline-block mr-2" /> EcoGuard
-    </div>
-    <nav className="flex flex-col space-y-4">
-      <a href="#" className="flex items-center p-3 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/30">
-        <LayoutDashboard className="mr-3" /> Overview
-      </a>
-      <a href="#" className="flex items-center p-3 rounded-lg hover:bg-slate-800 transition-colors">
-        <MapIcon className="mr-3" /> Live Map
-      </a>
-      <a href="#" className="flex items-center p-3 rounded-lg hover:bg-slate-800 transition-colors">
-        <FileText className="mr-3" /> Reports
-      </a>
-    </nav>
-    <div className="mt-auto text-xs text-slate-500">
-      <p>&copy; 2025 EcoGuard Smart City</p>
-    </div>
-  </aside>
-);
-
-const StatCard = ({ title, value, badge, icon, color }) => (
-    <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 p-4 sm:p-6 rounded-2xl shadow-lg flex items-center justify-between">
-        <div>
-            <p className="text-sm text-slate-400">{title}</p>
-            <p className="text-2xl sm:text-3xl font-bold text-white">{value}</p>
-            {badge && <p className={`text-xs mt-1 font-semibold ${badge.color}`}>{badge.text}</p>}
-        </div>
-        <div className={`p-3 sm:p-4 rounded-full ${color}`}>
-            {icon}
-        </div>
+const StatCard = ({ title, value, icon, color }) => (
+    <div className="bg-white p-5 rounded-xl shadow-sm">
+        <div className="flex justify-between items-center"><p className="text-sm font-medium text-gray-500">{title}</p><div className={`text-${color}-500`}>{icon}</div></div>
+        <p className={`text-3xl font-bold text-${color}-500 mt-2`}>{value}</p>
+        <div className="mt-4"><Sparkline color={color === 'gray' ? '#6b7280' : color === 'red' ? '#ef4444' : color === 'green' ? '#22c55e' : '#14b8a6'} /></div>
     </div>
 );
 
-const ReportItem = ({ report, onProofUpload, isUploading }) => {
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      onProofUpload(file, report);
-    }
-  };
+const ReportItem = ({ report, onResolve }) => {
+    const fileInputRef = useRef(null);
+    const handleResolveClick = () => fileInputRef.current?.click();
 
-  return (
-    <div className="flex flex-col md:flex-row items-start md:items-center p-4 bg-slate-800/60 rounded-lg transition-colors gap-4">
-      <img src={report.imageUrl} alt="Waste" className="w-full md:w-24 h-auto md:h-24 rounded-md object-cover" />
-      <div className="flex-grow w-full">
-        <p className={`px-2 py-0.5 text-xs font-semibold rounded-full inline-block ${report.wasteType === 'Plastic' ? 'bg-blue-500/20 text-blue-300' : 'bg-yellow-500/20 text-yellow-300'}`}>{report.wasteType}</p>
-        <p className="text-xs text-slate-400 mt-1">{new Date(report.createdAt?.toDate()).toLocaleString()}</p>
-        <p className="text-sm text-slate-300">Severity: {report.severity}</p>
-      </div>
-      <div className="flex items-center w-full md:w-auto mt-4 md:mt-0">
-        {report.status === 'cleaned' ? (
-          <div className="text-right w-full">
-            <p className="text-emerald-400 font-semibold flex items-center justify-center md:justify-end">
-              <CheckCircle className="mr-2" size={18} /> Cleaned & Verified
-            </p>
-            {report.cleanedImageUrl && (
-              <a href={report.cleanedImageUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-400 hover:underline">View Proof</a>
+    return (
+        <div className="flex items-center p-3 bg-gray-50 rounded-lg transition-colors">
+            <img src={report.imageUrl} alt={report.wasteType} className="w-14 h-14 object-cover rounded-md" />
+            <div className="ml-4 flex-grow">
+                <p className="font-semibold text-gray-800">{report.wasteType} - Severity: {report.severity}</p>
+                <p className="text-sm text-gray-500">{new Date(report.createdAt?.toDate()).toLocaleString()}</p>
+            </div>
+            {report.status === 'pending' ? (
+                <>
+                    <button onClick={handleResolveClick} className="ml-4 bg-green-500 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-green-600 transition-all transform hover:scale-105">
+                        <Upload size={16} className="inline mr-2" />
+                        Resolve
+                    </button>
+                    <input type="file" ref={fileInputRef} onChange={(e) => onResolve(report.id, e.target.files[0])} className="hidden" accept="image/*" />
+                </>
+            ) : (
+                <div className="ml-4 flex items-center text-green-600 font-semibold">
+                    <CheckCircle size={20} className="mr-2" /> Cleaned
+                </div>
             )}
-          </div>
-        ) : isUploading ? (
-          <p className="text-amber-400 animate-pulse w-full text-center">Verifying...</p>
-        ) : (
-          <>
-            <label htmlFor={`proof-upload-${report.id}`} className="cursor-pointer bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors font-semibold flex items-center justify-center w-full md:w-auto text-center">
-              📸 Upload Proof to Clean
-            </label>
-            <input
-              id={`proof-upload-${report.id}`}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={handleFileChange}
-              disabled={isUploading}
-            />
-          </>
-        )}
-      </div>
-    </div>
-  );
+        </div>
+    );
 };
 
 
-
-const AccessDenied = () => (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center text-center p-4">
-        <h1 className="text-4xl md:text-5xl font-bold text-red-500 mb-4">🚫 Access Denied</h1>
-        <p className="text-lg md:text-xl text-slate-400">You do not have permission to view this page.</p>
-    </div>
-);
-
-
-// --- Main Admin Page Component ---
-
 const AdminDashboardPage = () => {
-  const [reports, setReports] = useState([]);
-  const { user, loading: userLoading } = UserAuth();
-  const [dataLoading, setDataLoading] = useState(true);
-  const [isAuthorized, setIsAuthorized] = useState(false);
-  const router = useRouter();
-  const [uploadingReportId, setUploadingReportId] = useState(null);
-  
-  const ALLOWED_EMAILS = ['officalmarshal@gmail.com'];
+    const [reports, setReports] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [uploading, setUploading] = useState(false);
+    const currentDate = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
-  useEffect(() => {
-    if (userLoading) return;
-    if (!user) {
-      router.push('/');
-      return;
+    useEffect(() => {
+        seedDatabase().finally(() => setLoading(false));
+
+        const q = query(collection(db, "reports"), orderBy("createdAt", "desc"));
+        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+            setReports(querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (error) => toast.error("Failed to fetch live reports."));
+
+        return () => unsubscribe();
+    }, []);
+
+    const handleResolveReport = async (reportId, file) => {
+        if (!file) return;
+        setUploading(true);
+        const toastId = toast.loading('Uploading proof of work...');
+
+        try {
+            const reportToResolve = reports.find(r => r.id === reportId);
+            if (!reportToResolve) throw new Error("Report not found.");
+
+            const storageRef = ref(storage, `proofs/${reportId}-${file.name}`);
+            const uploadResult = await uploadBytes(storageRef, file);
+            const proofUrl = await getDownloadURL(uploadResult.ref);
+
+            // Update report status
+            const reportRef = doc(db, 'reports', reportId);
+            await updateDoc(reportRef, {
+                status: 'cleaned',
+                proofImageUrl: proofUrl,
+            });
+
+            // CRITICAL LOGIC FIX: Credit points to the reporter
+            if (reportToResolve.reportedBy) {
+                const reporterRef = doc(db, 'users', reportToResolve.reportedBy);
+                await updateDoc(reporterRef, { points: increment(50) });
+                toast.success(`Success! 50 Points sent to ${reportToResolve.userName || 'the reporter'}.`, { id: toastId });
+            } else {
+                toast.success('Report resolved, but reporter ID was missing.', { id: toastId });
+            }
+
+        } catch (error) {
+            toast.error('Failed to resolve report.', { id: toastId });
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const pendingReports = reports.filter(r => r.status === 'pending');
+    const resolvedReports = reports.filter(r => r.status === 'cleaned');
+
+    if (loading) {
+        return <div className="min-h-screen bg-gray-100/50 flex items-center justify-center"><p>Loading Command Center...</p></div>;
     }
-    if (ALLOWED_EMAILS.includes(user.email)) {
-      setIsAuthorized(true);
-    } else {
-      router.push('/');
-    }
-  }, [user, userLoading, router]);
 
-  useEffect(() => {
-    if (!isAuthorized) return;
-    
-    const reportsCollection = collection(db, 'reports');
-    const q = query(reportsCollection, orderBy('createdAt', 'desc'));
-
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const reportsData = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setReports(reportsData);
-      setDataLoading(false);
-    }, (error) => {
-      console.error("Error fetching reports: ", error);
-      setDataLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [isAuthorized]);
-
-  const handleProofUpload = async (file, report) => {
-    if (!file || !user) return;
-
-    setUploadingReportId(report.id);
-    const storage = getStorage();
-    const storageRef = ref(storage, `cleaned_proofs/${report.id}`);
-
-    try {
-      await uploadBytes(storageRef, file);
-      const downloadURL = await getDownloadURL(storageRef);
-
-      const reportRef = doc(db, 'reports', report.id);
-      await updateDoc(reportRef, {
-        status: 'cleaned',
-        cleanedImageUrl: downloadURL,
-      });
-
-      // Atomically increment user points
-      // This assumes you have a 'users' collection where each document ID is the user's UID
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, {
-        points: increment(20)
-      });
-
-      alert('Cleaned & Verified! +20 Points');
-
-    } catch (error) {
-      console.error("Error uploading proof: ", error);
-      alert('Error verifying. Please try again.');
-    } finally {
-      setUploadingReportId(null);
-    }
-  };
-  
-  if (userLoading || (isAuthorized && dataLoading)) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
-        <h2 className="text-3xl font-semibold animate-pulse">Loading Smart City Dashboard...</h2>
-      </div>
-    );
-  }
-  
-  if (!isAuthorized) {
-      return <AccessDenied />;
-  }
-
-  const pendingReports = reports.filter(r => r.status !== 'cleaned');
-  const cleanedReports = reports.filter(r => r.status === 'cleaned');
-
-  return (
-    <div className="flex flex-col md:flex-row min-h-screen bg-slate-950 text-white">
-      <Sidebar />
-      
-      {/* Mobile Header */}
-      <header className="p-4 bg-slate-900 text-xl font-bold text-emerald-400 md:hidden flex items-center justify-between">
-          <div className="flex items-center">
-            <Trash2 className="inline-block mr-3" /> EcoGuard Admin
-          </div>
-          {/* You can add a menu button here later */}
-      </header>
-
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto">
-        {/* Top Stats Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 mb-6 md:mb-8">
-            <StatCard title="Active Alerts" value={pendingReports.length} badge={{ text: "Pending action", color: "text-red-400" }} icon={<Bell size={24} />} color="bg-red-500/20" />
-            <StatCard title="Cleaned Reports" value={cleanedReports.length} badge={{ text: "Total verified", color: "text-green-400" }} icon={<CheckCircle size={24} />} color="bg-green-500/20" />
-            <StatCard title="Route Efficiency" value="91.5%" icon={<Route size={24} />} color="bg-blue-500/20" />
-            <StatCard title="Carbon Saved" value="2.8 t CO2e" icon={<Zap size={24} />} color="bg-yellow-500/20" />
-        </div>
-
-        {/* Middle Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          <div className="lg:col-span-2 bg-slate-800/50 backdrop-blur-sm border border-slate-700 p-4 md:p-6 rounded-2xl shadow-xl">
-             <h2 className="text-xl font-bold text-white mb-4">Citywide Collection Map</h2>
-             <div className="h-64 md:h-96 rounded-lg overflow-hidden">
-                <Map reports={reports} />
-             </div>
-          </div>
-          <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 p-4 md:p-6 rounded-2xl shadow-xl flex flex-col">
-            <h2 className="text-xl font-bold text-white mb-4">Action Required</h2>
-            <div className="flex-grow space-y-4 overflow-y-auto pr-2">
-                {pendingReports.length > 0 ? (
-                    pendingReports.map(report => (
-                        <ReportItem 
-                            key={report.id} 
-                            report={report} 
-                            onProofUpload={handleProofUpload}
-                            isUploading={uploadingReportId === report.id} 
-                        />
-                    ))
-                ) : (
-                    <p className="text-slate-400 text-center mt-4">No pending reports. Great job!</p>
-                )}
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom Section */}
-        <div className="grid grid-cols-1">
-            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700 p-4 md:p-6 rounded-2xl shadow-xl">
-                <h2 className="text-xl font-bold text-white mb-4">Recently Cleaned</h2>
-                 <div className="space-y-4 overflow-y-auto pr-2 max-h-96">
-                    {cleanedReports.length > 0 ? (
-                        cleanedReports.slice(0, 10).map(report => (
-                           <ReportItem 
-                                key={report.id} 
-                                report={report} 
-                            />
-                        ))
-                    ) : (
-                         <p className="text-slate-400 text-center mt-4">No reports cleaned yet.</p>
-                    )}
+        <div className={`min-h-screen bg-gray-100/50 ${uploading ? 'pointer-events-none opacity-50' : ''}`}>
+            <Toaster position="top-center" />
+            <header className="bg-white shadow-sm p-4 flex justify-between items-center">
+                <h1 className="text-xl font-bold text-gray-900">EcoGuard Command Center</h1>
+                <div className="flex items-center space-x-6">
+                    <span className="text-sm text-gray-600">{currentDate}</span>
+                    <div className="flex items-center space-x-3">
+                        <img src="https://i.pravatar.cc/40?u=chirag" alt="Admin Avatar" className="w-9 h-9 rounded-full" />
+                        <div><p className="font-semibold text-sm">Chirag Bhoi</p><p className="text-xs text-gray-500">Senior Research Analyst</p></div>
+                        <ChevronDown size={18} className="text-gray-400 cursor-pointer" />
+                    </div>
                 </div>
-            </div>
+            </header>
+
+            <main className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <StatCard title="Active Alerts" value={pendingReports.length} icon={<AlertTriangle size={22} />} color="red" />
+                    <StatCard title="Bins Collected" value={resolvedReports.length} icon={<Trash size={22} />} color="green" />
+                    <StatCard title="Carbon Saved" value="2.4t" icon={<Leaf size={22} />} color="teal" />
+                    <StatCard title="System Status" value="98%" icon={<Server size={22} />} color="gray" />
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                    <div className="lg:col-span-3 bg-white p-6 rounded-xl shadow-sm">
+                        <h2 className="text-lg font-semibold text-gray-800 mb-4">Live Grid Overview & Optimized Route</h2>
+                        <div className="h-[60vh] bg-gray-200 rounded-lg">
+                            <MapComponent reports={reports} pendingRoute={pendingReports.map(r => r.location)} />
+                        </div>
+                    </div>
+                    <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm">
+                        <h2 className="text-lg font-semibold text-gray-800 mb-4">Live Feed</h2>
+                        <div className="space-y-3 h-[60vh] overflow-y-auto">
+                            {reports.map((report) => <ReportItem key={report.id} report={report} onResolve={handleResolveReport} />)}
+                        </div>
+                    </div>
+                </div>
+            </main>
         </div>
-      </main>
-    </div>
-  );
+    );
 };
 
 export default AdminDashboardPage;

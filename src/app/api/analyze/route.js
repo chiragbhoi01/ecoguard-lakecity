@@ -107,6 +107,7 @@ export async function POST(req) {
         status: "pending",
         createdAt: serverTimestamp(),
         reportedBy: userId,
+        userName: userName,
       });
       reportId = docRef.id;
 

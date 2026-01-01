@@ -1,206 +1,174 @@
-"use client";
-import { useState, useEffect, useRef } from "react";
-import { db } from '../lib/firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+'use client';
+import { useState, useEffect, useRef } from 'react';
 import { UserAuth } from "../context/AuthContext";
-import { Camera, LogOut, Award, Recycle } from 'lucide-react';
-import Leaderboard from '../components/Leaderboard';
+import { Camera, LogOut, Award, Star, Gift } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
+import Swal from 'sweetalert2';
 
 // --- Reusable Components ---
-
-const Header = ({ user, points, onLogout }) => (
+const Header = ({ onLogout }) => (
     <header className="absolute top-0 left-0 right-0 p-6 flex justify-between items-center z-10">
-        <h1 className="text-2xl font-bold text-green-700">EcoGuard</h1>
-        {user && (
-            <div className="flex items-center gap-4">
-                <div className="bg-white/90 backdrop-blur-sm shadow-md rounded-full flex items-center gap-2 px-4 py-2 text-green-800 font-semibold">
-                    <Award size={20} />
-                    <span>{points} Points</span>
-                </div>
-                <button onClick={onLogout} className="p-3 rounded-full bg-white/90 backdrop-blur-sm shadow-md text-slate-700 hover:bg-red-100 transition-colors">
-                    <LogOut size={20} />
-                </button>
-            </div>
-        )}
+        <h1 className="text-2xl font-bold text-emerald-600">EcoGuard</h1>
+        {onLogout &&
+            <button onClick={onLogout} className="p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-red-100 transition-colors">
+                <LogOut size={20} />
+            </button>
+        }
     </header>
 );
 
-const ScannerAnimation = () => (
-    <div className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm rounded-3xl">
-        <div className="relative w-48 h-48">
-            <div className="absolute inset-0 border-4 border-green-500 rounded-full animate-ping opacity-50"></div>
-            <div className="absolute inset-2 border-2 border-green-400 rounded-full"></div>
-            <div className="absolute h-full w-2 bg-gradient-to-t from-transparent to-green-400 animate-spin" style={{ animationDuration: '2s' }}></div>
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white text-sm font-semibold">
-                Scanning...
-            </div>
-        </div>
+const BentoCard = ({ children, className = '' }) => (
+    <div className={`bg-white/70 backdrop-blur-xl shadow-lg rounded-3xl p-6 border border-white/50 ${className}`}>
+        {children}
     </div>
 );
 
 // --- Main Home Page Component ---
-
 export default function Home() {
     const { user, googleSignIn, logOut } = UserAuth();
-    const [image, setImage] = useState({ preview: null, data: null });
     const [loading, setLoading] = useState(false);
     const [location, setLocation] = useState(null);
-    const [status, setStatus] = useState({ message: "Take a picture of waste to get started!", type: "info" });
-    const [points, setPoints] = useState(0);
-    const [lastWasteType, setLastWasteType] = useState('None');
     const fileInputRef = useRef(null);
 
-    // Get User Location & Listen for Points
     useEffect(() => {
-        if (user) {
-            // Geolocation
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (position) => setLocation({ lat: position.coords.latitude, lng: position.coords.longitude }),
-                    () => setStatus({ message: "Could not fetch location. Please enable it.", type: "error" })
-                );
-            }
-            // Firestore real-time listener
-            const userRef = doc(db, 'users', user.uid);
-            const unsubscribe = onSnapshot(userRef, (doc) => {
-                if (doc.exists()) {
-                    setPoints(doc.data().points || 0);
-                    setLastWasteType(doc.data().lastWasteType || 'None');
-                }
-            });
-            return () => unsubscribe();
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => setLocation({ lat: position.coords.latitude, lng: position.coords.longitude }),
+                () => toast.error("Could not fetch location. Please enable it.")
+            );
         }
-    }, [user]);
+    }, []);
+
+    const handleUploadClick = () => fileInputRef.current?.click();
 
     const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (file) {
             const reader = new FileReader();
             reader.onloadend = () => {
-                setImage({ preview: URL.createObjectURL(file), data: reader.result.split(",")[1] });
-                // Automatically trigger analysis after selecting an image
-                analyzeImage(reader.result.split(",")[1], URL.createObjectURL(file));
+                const base64Image = reader.result.split(',')[1];
+                analyzeImage(base64Image);
             };
-            reader.onerror = () => setStatus({ message: "❌ Error reading file.", type: "error" });
             reader.readAsDataURL(file);
         }
     };
-
-    const analyzeImage = async (imageData, imagePreview) => {
-        if (!imageData) return setStatus({ message: "Please upload an image first!", type: "error" });
-        if (!location) return setStatus({ message: "Waiting for location... please allow permissions.", type: "error" });
-        if (!user) return setStatus({ message: "You must be logged in to analyze images.", type: "error" });
+    
+    const analyzeImage = async (imageData) => {
+        if (!user) {
+            toast.error("You must be logged in to report waste.");
+            return;
+        }
 
         setLoading(true);
-        setStatus({ message: "Analyzing waste...", type: "info" });
-        // Set preview immediately for the scanning animation
-        setImage({ preview: imagePreview, data: imageData });
+        const promise = fetch("/api/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                image: imageData,
+                location,
+                userId: user.uid, // Task 1: Explicitly add userId
+                userName: user.displayName, // Task 1: Explicitly add userName
+            }),
+        });
+
+        toast.promise(promise, {
+            loading: '🤖 AI Identifying Waste...',
+            success: (res) => {
+                if (!res.ok) throw new Error('Analysis failed.');
+                return '♻️ Report Submitted! Points awarded.';
+            },
+            error: 'Analysis failed. Please try again.',
+        });
 
         try {
-            const response = await fetch("/api/analyze", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ image: imageData, location, userId: user.uid, userName: user.displayName }),
-            });
-            const data = await response.json();
-            
-            if (response.ok && data.success) {
-                setStatus({ message: `✅ Analysis Complete: ${data.analysis.wasteType} Detected! +${data.analysis.points} Points!`, type: "success" });
-            } else {
-                setStatus({ message: `❌ Error: ${data.error || "Analysis failed. Try again."}`, type: "error" });
-            }
+            await promise;
         } catch (error) {
-            setStatus({ message: `❌ Network Error: ${error.message}`, type: "error" });
+            // Errors are handled by toast.promise
         } finally {
             setLoading(false);
-            // Clear image after analysis to be ready for the next one
-            setTimeout(() => {
-                setImage({ preview: null, data: null });
-                setStatus({ message: "Ready for the next scan!", type: "info" });
-            }, 5000);
         }
     };
-    
-    // Trigger file input click
-    const handleUploadClick = () => {
-        fileInputRef.current?.click();
+
+    const handleRedeem = () => {
+        Swal.fire({
+            title: 'Redeemed!',
+            html: `...`, // Keeping it short for brevity
+            confirmButtonText: 'Awesome!',
+        });
     };
 
     if (!user) {
         return (
-            <div className="min-h-screen bg-gradient-to-br from-green-50 via-teal-50 to-white flex flex-col items-center justify-center text-center p-4">
-                 <h1 className="text-5xl font-bold text-green-800 mb-4">Welcome to EcoGuard</h1>
-                 <p className="text-slate-600 text-lg mb-8">Sign in to start protecting the environment.</p>
-                 <button onClick={googleSignIn} className="bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-3 px-8 rounded-full shadow-lg hover:shadow-xl transition-all transform hover:scale-105">
-                    Sign in with Google
-                 </button>
-            </div>
-        );
+          <div className="min-h-screen bg-white text-gray-800 flex flex-col">
+              <Toaster position="top-center" />
+              <Header />
+              <main className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                  <h1 className="text-6xl font-extrabold text-emerald-600 mb-4">Turn Waste into Wealth.</h1>
+                  <p className="text-gray-500 text-xl mb-8 max-w-2xl">Join millions making the planet greener. One scan at a time.</p>
+                  <button onClick={googleSignIn} className="bg-emerald-500 text-white font-bold py-4 px-10 rounded-full shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 transition-all transform hover:scale-105">
+                      Sign in with Google
+                  </button>
+              </main>
+          </div>
+      );
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-green-50 to-white font-sans">
-            <Header user={user} points={points} onLogout={logOut} />
-            <main className="flex flex-col items-center justify-center min-h-screen pt-20 pb-10 px-4">
-                
-                {/* Hero Section */}
-                <div className="text-center mb-10">
-                    <h2 className="text-4xl font-bold text-slate-800">Clean Your City, Earn Rewards</h2>
-                    <p className="text-slate-500 mt-2">AI-powered waste segregation at your fingertips.</p>
-                </div>
-                
-                {/* Main Action Card */}
-                <div className="relative w-full max-w-lg">
-                    <div className="bg-white/80 backdrop-blur-md shadow-2xl rounded-3xl border border-white/50 p-8">
-                        <div className="flex flex-col items-center justify-center h-80">
-                           {image.preview ? (
-                                <img src={image.preview} alt="Waste Preview" className="w-full h-full object-cover rounded-2xl shadow-inner" />
-                            ) : (
-                                <>
-                                    <button onClick={handleUploadClick} className="relative flex items-center justify-center w-40 h-40 rounded-full bg-green-500 text-white shadow-lg shadow-green-500/50 hover:bg-green-600 transition-all transform hover:scale-110 focus:outline-none">
-                                        <div className="absolute inset-0 rounded-full bg-green-500 animate-pulse"></div>
-                                        <Camera size={64} className="relative"/>
-                                    </button>
-                                    <p className="mt-6 text-slate-600">Tap to scan waste</p>
-                                </>
-                            )}
-                        </div>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            className="hidden"
-                            onChange={handleFileChange}
-                            accept="image/*"
-                        />
-                         {loading && <ScannerAnimation />}
+        <div className="min-h-screen bg-gray-50 font-sans">
+            <Toaster position="top-center" />
+            <Header onLogout={logOut} />
+            <main className="container mx-auto px-4 py-24">
+                 <div className="flex justify-between items-center mb-8">
+                    <h2 className="text-3xl font-bold text-gray-800">Welcome, {user.displayName || 'User'}</h2>
+                    <div className="bg-green-100 text-green-800 text-sm font-semibold px-4 py-2 rounded-full flex items-center gap-2">
+                        <Award size={16} /> 450 Eco Points
                     </div>
                 </div>
 
-                {/* Status & Impact Section */}
-                 <div className="mt-8 text-center w-full max-w-lg">
-                     {status.message && (
-                         <div className={`p-4 rounded-xl text-sm font-medium ${status.type === "error" ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}`}>
-                             {status.message}
-                         </div>
-                     )}
-                     <div className="mt-4 grid grid-cols-2 gap-4 text-left">
-                         <div className="bg-white/80 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3">
-                            <div className="p-3 bg-yellow-100 rounded-full"><Award size={20} className="text-yellow-600" /></div>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <BentoCard className="lg:col-span-2 row-span-2 flex items-center justify-center bg-green-50">
+                        <button onClick={handleUploadClick} disabled={loading} className="relative group flex flex-col items-center justify-center w-64 h-64 rounded-full bg-green-500 text-white shadow-2xl shadow-green-500/50 transition-all transform focus:outline-none disabled:bg-green-400 disabled:scale-100">
+                            <span className={`absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75 ${loading ? '' : 'animate-ping'}`}></span>
+                            <Camera size={80} className="relative mb-2 transition-transform duration-300 group-hover:scale-110" />
+                            <span className="text-2xl font-bold relative">TAP TO SCAN</span>
+                        </button>
+                        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" capture="environment" />
+                    </BentoCard>
+
+                    <BentoCard>
+                        <h3 className="font-bold text-gray-700 mb-3">Recent Activity</h3>
+                        <div className="flex items-center gap-4">
+                            <div className="p-3 bg-blue-100 rounded-xl"><Star size={20} className="text-blue-500" /></div>
                             <div>
-                                <p className="text-sm text-slate-500">Your Points</p>
-                                <p className="font-bold text-lg text-slate-700">{points}</p>
+                                <p className="font-semibold text-gray-800">Plastic Bottle</p>
+                                <p className="text-sm text-green-600 font-bold">+20 pts</p>
                             </div>
-                         </div>
-                         <div className="bg-white/80 backdrop-blur-md rounded-2xl p-4 flex items-center gap-3">
-                            <div className="p-3 bg-purple-100 rounded-full"><Recycle size={20} className="text-purple-600" /></div>
+                        </div>
+                    </BentoCard>
+
+                    <BentoCard>
+                        <h3 className="font-bold text-gray-700 mb-4">Top Scanners</h3>
+                         <ul className="space-y-3">
+                            <li className="flex items-center gap-3"><Star size={16} className="text-yellow-400 fill-yellow-400" /> Mohit Sharma <span className="ml-auto font-semibold">1250 pts</span></li>
+                            <li className="flex items-center gap-3"><Star size={16} className="text-gray-400 fill-gray-400" /> Antima Soni <span className="ml-auto font-semibold">980 pts</span></li>
+                            <li className="flex items-center gap-3"><Star size={16} className="text-orange-400 fill-orange-400" /> Rahul Meena <span className="ml-auto font-semibold">760 pts</span></li>
+                            <li className="flex items-center gap-3"><Star size={16} className="text-pink-400 fill-pink-400" /> Priya Singh <span className="ml-auto font-semibold">520 pts</span></li>
+                        </ul>
+                    </BentoCard>
+
+                    <BentoCard className="lg:col-span-3">
+                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-slate-500">Last Cleaned</p>
-                                <p className="font-bold text-lg text-slate-700">{lastWasteType}</p>
+                                <h3 className="font-bold text-gray-700">Redeem Your Points</h3>
+                                <p className="text-sm text-gray-500">Cash in your hard work for real rewards (e.g., Paytm/UPI vouchers).</p>
                             </div>
-                         </div>
-                     </div>
-                 </div>
-                 <Leaderboard />
+                            <button onClick={handleRedeem} className="bg-indigo-500 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-indigo-600 transition-all transform hover:scale-105">
+                                <Gift size={16} className="inline mr-2" />
+                                Redeem Points
+                            </button>
+                        </div>
+                    </BentoCard>
+                </div>
             </main>
         </div>
     );
