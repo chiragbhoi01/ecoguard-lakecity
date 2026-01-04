@@ -25,15 +25,10 @@ try {
 async function generateWithRetry(model, prompt, image, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
-      const result = await model.generateContent({
-        contents: [{
-          role: "user",
-          parts: [
-            { text: prompt },
-            { inlineData: { mimeType: "image/jpeg", data: image } }
-          ]
-        }]
-      });
+      const result = await model.generateContent([
+        prompt,
+        { inlineData: { mimeType: "image/jpeg", data: image } },
+      ]);
       return result;
     } catch (error) {
       // Check if the error is a 429 or 503
@@ -106,7 +101,7 @@ export async function POST(req) {
         location: location || { lat: 24.5854, lng: 73.7125 },
         status: "pending",
         createdAt: serverTimestamp(),
-        reportedBy: userId,
+        userId: userId, // Fix: Use userId as requested
         userName: userName,
       });
       reportId = docRef.id;

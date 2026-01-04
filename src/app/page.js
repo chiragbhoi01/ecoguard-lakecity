@@ -34,8 +34,13 @@ export default function Home() {
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 (position) => setLocation({ lat: position.coords.latitude, lng: position.coords.longitude }),
-                () => toast.error("Could not fetch location. Please enable it.")
+                () => {
+                    toast.error("Could not fetch location. Defaulting to Jaipur.");
+                    setLocation({ lat: 26.9124, lng: 75.7873 }); // Fallback: Jaipur
+                }
             );
+        } else {
+            setLocation({ lat: 26.9124, lng: 75.7873 }); // Fallback if not supported
         }
     }, []);
 
@@ -52,7 +57,7 @@ export default function Home() {
             reader.readAsDataURL(file);
         }
     };
-    
+
     const analyzeImage = async (imageData) => {
         if (!user) {
             toast.error("You must be logged in to report waste.");
@@ -66,8 +71,9 @@ export default function Home() {
             body: JSON.stringify({
                 image: imageData,
                 location,
-                userId: user.uid, // Task 1: Explicitly add userId
-                userName: user.displayName, // Task 1: Explicitly add userName
+                userId: user.uid,
+                userName: user.displayName || 'Anonymous',
+                status: 'pending',
             }),
         });
 
@@ -99,18 +105,18 @@ export default function Home() {
 
     if (!user) {
         return (
-          <div className="min-h-screen bg-white text-gray-800 flex flex-col">
-              <Toaster position="top-center" />
-              <Header />
-              <main className="flex-1 flex flex-col items-center justify-center text-center p-4">
-                  <h1 className="text-6xl font-extrabold text-emerald-600 mb-4">Turn Waste into Wealth.</h1>
-                  <p className="text-gray-500 text-xl mb-8 max-w-2xl">Join millions making the planet greener. One scan at a time.</p>
-                  <button onClick={googleSignIn} className="bg-emerald-500 text-white font-bold py-4 px-10 rounded-full shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 transition-all transform hover:scale-105">
-                      Sign in with Google
-                  </button>
-              </main>
-          </div>
-      );
+            <div className="min-h-screen bg-white text-gray-800 flex flex-col">
+                <Toaster position="top-center" />
+                <Header />
+                <main className="flex-1 flex flex-col items-center justify-center text-center p-4">
+                    <h1 className="text-6xl font-extrabold text-emerald-600 mb-4">Turn Waste into Wealth.</h1>
+                    <p className="text-gray-500 text-xl mb-8 max-w-2xl">Join millions making the planet greener. One scan at a time.</p>
+                    <button onClick={googleSignIn} className="bg-emerald-500 text-white font-bold py-4 px-10 rounded-full shadow-lg shadow-emerald-500/30 hover:bg-emerald-600 transition-all transform hover:scale-105">
+                        Sign in with Google
+                    </button>
+                </main>
+            </div>
+        );
     }
 
     return (
@@ -118,7 +124,7 @@ export default function Home() {
             <Toaster position="top-center" />
             <Header onLogout={logOut} />
             <main className="container mx-auto px-4 py-24">
-                 <div className="flex justify-between items-center mb-8">
+                <div className="flex justify-between items-center mb-8">
                     <h2 className="text-3xl font-bold text-gray-800">Welcome, {user.displayName || 'User'}</h2>
                     <div className="bg-green-100 text-green-800 text-sm font-semibold px-4 py-2 rounded-full flex items-center gap-2">
                         <Award size={16} /> 450 Eco Points
@@ -148,7 +154,7 @@ export default function Home() {
 
                     <BentoCard>
                         <h3 className="font-bold text-gray-700 mb-4">Top Scanners</h3>
-                         <ul className="space-y-3">
+                        <ul className="space-y-3">
                             <li className="flex items-center gap-3"><Star size={16} className="text-yellow-400 fill-yellow-400" /> Mohit Sharma <span className="ml-auto font-semibold">1250 pts</span></li>
                             <li className="flex items-center gap-3"><Star size={16} className="text-gray-400 fill-gray-400" /> Antima Soni <span className="ml-auto font-semibold">980 pts</span></li>
                             <li className="flex items-center gap-3"><Star size={16} className="text-orange-400 fill-orange-400" /> Rahul Meena <span className="ml-auto font-semibold">760 pts</span></li>
@@ -157,7 +163,7 @@ export default function Home() {
                     </BentoCard>
 
                     <BentoCard className="lg:col-span-3">
-                         <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between">
                             <div>
                                 <h3 className="font-bold text-gray-700">Redeem Your Points</h3>
                                 <p className="text-sm text-gray-500">Cash in your hard work for real rewards (e.g., Paytm/UPI vouchers).</p>

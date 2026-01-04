@@ -124,8 +124,8 @@ const AdminDashboardPage = () => {
             });
 
             // CRITICAL LOGIC FIX: Credit points to the reporter
-            if (reportToResolve.reportedBy) {
-                const reporterRef = doc(db, 'users', reportToResolve.reportedBy);
+            if (reportToResolve.userId) {
+                const reporterRef = doc(db, 'users', reportToResolve.userId);
                 await updateDoc(reporterRef, { points: increment(50) });
                 toast.success(`Success! 50 Points sent to ${reportToResolve.userName || 'the reporter'}.`, { id: toastId });
             } else {

@@ -8,7 +8,8 @@ const containerStyle = {
   height: '100%',
 };
 
-const BANSWARA_COORDS = { lat: 23.5461, lng: 74.4350 };
+// Jaipur/Rajasthan coordinates as requested
+const JAIPUR_COORDS = { lat: 26.9124, lng: 75.7873 };
 
 const mapOptions = {
     styles: [
@@ -37,15 +38,15 @@ const mapOptions = {
 };
 
 const getPinColor = (status) => {
-    if (status === 'pending') return '#ef4444'; // Red
-    if (status === 'cleaned') return '#22c55e'; // Green
-    return '#3498db'; // Default blue for other statuses
+    if (status === 'pending') return '#ef4444'; // Red for reported
+    if (status === 'cleaned') return '#22c55e'; // Green for cleaned
+    return '#3498db'; // Blue default
 };
 
 const MapComponent = ({ reports, pendingRoute = [] }) => {
   const [selectedReport, setSelectedReport] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
-  const [mapCenter, setMapCenter] = useState(BANSWARA_COORDS);
+  const [mapCenter, setMapCenter] = useState(JAIPUR_COORDS);
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -57,11 +58,14 @@ const MapComponent = ({ reports, pendingRoute = [] }) => {
           setMapCenter(currentUserLocation);
         },
         () => {
-          // Fallback to Banswara if permission is denied
-          setUserLocation(null);
-          setMapCenter(BANSWARA_COORDS);
+            // Fallback: If GPS fails, default to Jaipur
+            console.warn("Geolocation failed or denied. Defaulting to Jaipur.");
+            setMapCenter(JAIPUR_COORDS);
         }
       );
+    } else {
+        // Fallback: If Geolocation not supported
+        setMapCenter(JAIPUR_COORDS);
     }
   }, []);
 
@@ -79,22 +83,24 @@ const MapComponent = ({ reports, pendingRoute = [] }) => {
         mapId={'DEMO_MAP_ID'}
         style={containerStyle}
         center={mapCenter}
-        defaultZoom={14} // Zoom in a bit more for a local view
+        defaultZoom={14}
         gestureHandling={'greedy'}
         options={mapOptions}
         onClick={handleInfoWindowClose}
       >
-        {/* Waste Reports Markers */}
+        {/* Waste Reports Markers - Red for Pending, Green for Cleaned */}
         {reports.map((report) => (
           <AdvancedMarker key={report.id} position={report.location} onClick={() => handleMarkerClick(report)}>
             <Pin background={getPinColor(report.status)} borderColor={'#fff'} glyphColor={'#fff'} scale={1.2} />
           </AdvancedMarker>
         ))}
 
-        {/* User's Location Marker */}
+        {/* User's Live Location Marker - Distinct Blue */}
         {userLocation && (
             <AdvancedMarker position={userLocation} title={"You are here"}>
-                <Pin background={'#007BFF'} borderColor={'#fff'} glyphColor={'#fff'} />
+                <Pin background={'#007BFF'} borderColor={'#fff'} glyphColor={'#fff'} scale={1.3}>
+                    <div style={{ color: 'white', fontSize: '10px', fontWeight: 'bold' }}>YOU</div>
+                </Pin>
             </AdvancedMarker>
         )}
 
